@@ -42,11 +42,11 @@ export default ({ filter }, context) => {
 
     filter('items.create', async (payload, { collection }, { database, accountability }) => {
         if (collection !== 'team_members') return;
-        const charterId = payload.charter_id;
+        const charterId = payload.charter_skater_id;
         if (!charterId) return;
 
         const limit = await getDynamicLimit(database);
-        const result = await database('team_members').count('* as count').where('charter_id', charterId).first();
+        const result = await database('team_members').count('* as count').where('charter_skater_id', charterId).first();
 
         if (result.count >= limit) {
             throw new CharterLimitError(await getErrorMessage(accountability?.user, limit));
@@ -55,11 +55,11 @@ export default ({ filter }, context) => {
 
     filter('items.update', async (payload, { collection }, { database, accountability }) => {
         if (collection !== 'team_members') return;
-        const charterId = payload.charter_id;
+        const charterId = payload.charter_skater_id;
         if (charterId === undefined || charterId === null) return;
 
         const limit = await getDynamicLimit(database);
-        const result = await database('team_members').count('* as count').where('charter_id', charterId).first();
+        const result = await database('team_members').count('* as count').where('charter_skater_id', charterId).first();
 
         if (result.count >= limit) {
             throw new CharterLimitError(await getErrorMessage(accountability?.user, limit));
