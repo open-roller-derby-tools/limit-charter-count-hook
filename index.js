@@ -3,17 +3,13 @@ let SafeError = Error;
 try {
     const path = '/app/code/node_modules/@directus/errors/dist/index.js';
     const errors = await import(path);
-    const BaseError = errors.InvalidPayloadError;
 
-    if (BaseError) {
-        class CharterError extends BaseError {
-            constructor(message) {
-                super(message);
-                this.message = message; 
-                this.extensions = { code: 'INVALID_CHARTER' };
-            }
-        }
-        SafeError = CharterError;
+    // 1. Use createError to define a class with OUR custom code.
+    // This ensures the Title translation works (errors.INVALID_CHARTER).
+    if (errors.createError) {
+        SafeError = errors.createError('INVALID_CHARTER', 'Charter Limit Reached', 400);
+    } else {
+        console.error("[HOOK] createError not found.");
     }
 } catch (e) {
     console.error("[HOOK] Failed to load Directus errors.", e.message);
@@ -22,7 +18,7 @@ try {
 export default ({ filter }, context) => {
     const { database: systemDb } = context || {};
 
-    const translations = {
+     const translations = {
         en: "The charter can not have more than {limit} players.",
         fr: "Le charter ne peut pas avoir plus de {limit} joueureuses.",
         es: "Este charter no puede tener más de {limit} jugadores."
@@ -44,24 +40,28 @@ export default ({ filter }, context) => {
             try {
                 const user = await systemDb('directus_users').select('language').where('id', userId).first();
                 if (user?.language) {
-                    // 1. Get the raw language (e.g., "fr-FR")
                     let rawLang = user.language;
-                    
-                    // 2. Normalize: Convert "fr-FR" -> "fr"
                     if (rawLang.includes('-')) {
                         lang = rawLang.split('-')[0];
                     } else {
                         lang = rawLang;
                     }
                 }
-            } catch (e) {
-                console.warn("[HOOK] Could not fetch user language", e.message);
-            }
+            } catch (e) {}
         }
 
-        // 3. Check if we have a translation for this key, otherwise fallback to 'en'
         let template = translations[lang] || translations['en'];
         return template.replace('{limit}', limit);
+    }
+
+    // Helper to throw the error with the correct message
+    async function throwLimitError(userId, limit) {
+        const message = await getErrorMessage(userId, limit);
+        // We create the error instance
+        const error = new SafeError();
+        // We overwrite the message property with our specific translated string
+        error.message = message;
+        throw error;
     }
 
     filter('items.create', async (payload, { collection }, { database, accountability }) => {
@@ -69,14 +69,13 @@ export default ({ filter }, context) => {
         const charterId = payload.charter_skater_id;
         if (!charterId) return;
 
-        // Lock to prevent race conditions
         await database('charter').where('id', charterId).forUpdate().first();
 
         const limit = await getDynamicLimit();
         const result = await database('team_members').count('* as count').where('charter_skater_id', charterId).first();
 
         if (result.count >= limit) {
-            throw new SafeError(await getErrorMessage(accountability?.user, limit));
+            await throwLimitError(accountability?.user, limit);
         }
     });
 
@@ -85,14 +84,13 @@ export default ({ filter }, context) => {
         const charterId = payload.charter_skater_id;
         if (!charterId) return;
 
-        // Lock to prevent race conditions
         await database('charter').where('id', charterId).forUpdate().first();
 
         const limit = await getDynamicLimit();
         const result = await database('team_members').count('* as count').where('charter_skater_id', charterId).first();
 
         if (result.count >= limit) {
-            throw new SafeError(await getErrorMessage(accountability?.user, limit));
+            await throwLimitError(accountability?.user, limit);
         }
     });
 };
